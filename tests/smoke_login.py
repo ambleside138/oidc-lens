@@ -3,8 +3,10 @@
 import argparse
 import http.cookiejar
 import json
+import re
 import socket
 import ssl
+import subprocess
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -54,10 +56,11 @@ def browser():
     )
 
 
-def request(opener, url, expected, fields=None):
+def request(opener, url, expected, fields=None, headers=None):
     data = None if fields is None else urllib.parse.urlencode(fields).encode()
+    req = urllib.request.Request(url, data=data, headers=headers or {})
     try:
-        response = opener.open(url, data=data, timeout=15)
+        response = opener.open(req, timeout=15)
     except urllib.error.HTTPError as error:
         response = error
     with response:
@@ -67,8 +70,17 @@ def request(opener, url, expected, fields=None):
         return response.headers, response.read()
 
 
+def verify_frontend(opener):
+    _, page = request(opener, f"{APP}/", 200)
+    bundle = re.search(rb'src="(/assets/[^"]+\.js)"', page)
+    assert bundle, "Expected the Vue bundle in the BFF home page."
+    _, javascript = request(opener, APP + bundle[1].decode(), 200)
+    return javascript
+
+
 def verify_login():
     opener = browser()
+    verify_frontend(opener)
     request(opener, f"{APP}/api/session", 401)
     headers, _ = request(opener, f"{APP}/auth/login", 302)
     authorization = urllib.parse.urlsplit(headers["Location"])
@@ -100,22 +112,33 @@ def verify_login():
     _, session = request(opener, f"{APP}/api/session", 200)
     assert json.loads(session) == {"authenticated": True}
     attempt = urllib.parse.parse_qs(urllib.parse.urlsplit(headers["Location"]).query)["attempt"][0]
+    _, resource = request(opener, f"{APP}/api/attempts/{attempt}/resource", 200, {},
+                          {"X-Oidc-Lens": "workshop"})
+    assert json.loads(resource) == {"reached": True}
     _, data = request(opener, f"{APP}/api/attempts/{attempt}", 200)
     steps = json.loads(data)["steps"]
     assert [step["id"] for step in steps] == [
-        "authorization-request", "callback", "code-exchange", "token-http", "session"
+        "authorization-request", "callback", "code-exchange", "token-http", "session",
+        "api-browser", "api-resource"
     ]
     assert steps[3]["status"] == 200
     assert steps[3]["response"]["id_token"] == "present"
-    assert callback.fields["code"].encode() not in data
-    assert callback.fields["state"].encode() not in data
-    print("Keycloak enforced S256, established a BFF session and produced a masked trace.")
+    assert steps[4]["idToken"]["result"] == "session-established"
+    assert steps[6]["status"] == 200
+    logs = subprocess.run(["docker", "compose", "logs", "--no-color"], capture_output=True, check=True).stdout
+    for secret in (callback.fields["code"], callback.fields["state"], parameters["nonce"][0],
+                   parameters["code_challenge"][0], "oidc-lens-demo", "oidc-lens-local-only"):
+        assert secret.encode() not in data and secret.encode() not in logs, "Secret in history or Compose logs."
+    print("Keycloak enforced S256, the BFF established a session, and the protected API returned HTTP 200.")
+    print("The masked trace and Compose logs did not contain the checked secret values.")
     return steps
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--record", type=Path, help="write only the masked trace steps as JSON")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--record", type=Path, help="write only the masked trace steps as JSON")
+    mode.add_argument("--replay-only", action="store_true", help="verify the bundled replay without contacting Keycloak")
     args = parser.parse_args()
     getaddrinfo = socket.getaddrinfo
 
@@ -124,7 +147,12 @@ if __name__ == "__main__":
         return getaddrinfo("127.0.0.1" if host.endswith(".localhost") else host, *args, **kwargs)
 
     with patch("socket.getaddrinfo", resolve_local):
-        steps = verify_login()
+        if args.replay_only:
+            javascript = verify_frontend(browser())
+            assert b"https://resource-api.dev.localhost:9443/protected" in javascript
+            print("The BFF served the bundled recording through the protected API step.")
+        else:
+            steps = verify_login()
     if args.record:
         args.record.parent.mkdir(parents=True, exist_ok=True)
         args.record.write_text(json.dumps(steps, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

@@ -9,7 +9,13 @@ internal sealed record TraceStep(
     string? Url = null,
     int? Status = null,
     IReadOnlyDictionary<string, string>? Request = null,
-    IReadOnlyDictionary<string, string>? Response = null);
+    IReadOnlyDictionary<string, string>? Response = null,
+    IdTokenInspection? IdToken = null);
+
+internal sealed record IdTokenInspection(
+    IReadOnlyDictionary<string, string> Header,
+    IReadOnlyDictionary<string, string> Payload,
+    string Result);
 
 internal sealed record AttemptSummary(string Id, DateTimeOffset StartedAt);
 internal sealed record AttemptDetails(string Id, DateTimeOffset StartedAt, IReadOnlyList<TraceStep> Steps);

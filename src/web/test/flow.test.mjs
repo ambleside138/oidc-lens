@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { makeTimeline } from '../src/flow.ts'
 
@@ -23,4 +24,19 @@ test('a token exchange does not imply that the app established a session', () =>
   assert.equal(timeline[1].status, 200)
   assert.equal(timeline[1].from, 'IdP')
   assert.deepEqual(makeTimeline([{ ...token, status: null }]).map(step => step.id), ['token-http'])
+})
+
+test('the offline recording follows login through the protected API', () => {
+  const recording = JSON.parse(readFileSync(new URL('../src/recordings/normal.json', import.meta.url), 'utf8'))
+  const timeline = makeTimeline(recording)
+  const session = timeline.find(step => step.id === 'session')
+  assert.equal(session.idToken.result, 'session-established')
+  assert.equal(session.idToken.payload.sub, 'present')
+  assert.deepEqual(timeline.slice(-4).map(({ id, channel, from, to, status }) =>
+    [id, channel, from, to, status]), [
+    ['api-browser', 'front', 'Browser', 'App', null],
+    ['api-resource', 'back', 'App', 'Resource API', null],
+    ['resource-return', 'back', 'Resource API', 'App', 200],
+    ['api-browser-return', 'front', 'App', 'Browser', 200],
+  ])
 })

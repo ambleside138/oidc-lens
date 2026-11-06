@@ -41,6 +41,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.TokenHandler = new SignedIdTokenHandler();
         options.TokenValidationParameters.ValidAlgorithms = [oidc["SigningAlgorithm"] ?? "RS256"];
         options.Events.OnAuthorizationCodeReceived = TraceCapture.BeginCodeExchange;
+        options.Events.OnTokenValidated = TraceCapture.CaptureDecodedIdToken;
         options.Events.OnTokenResponseReceived = context =>
         {
             context.HttpContext.Features.Get<TraceCapture>()?.RecordTokenFields(context.TokenEndpointResponse);
@@ -72,6 +73,15 @@ builder.Services.AddOptions<OpenIdConnectOptions>(OpenIdConnectDefaults.Authenti
         };
     });
 builder.Services.AddAuthorization();
+builder.Services.AddHttpClient(ResourceAccess.ClientName, client =>
+    {
+        if (Uri.TryCreate(builder.Configuration["ResourceApi:BaseAddress"], UriKind.Absolute, out var uri) &&
+            uri.Scheme == Uri.UriSchemeHttps)
+            client.BaseAddress = uri;
+        client.Timeout = TimeSpan.FromSeconds(10);
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false })
+    .RemoveAllLoggers();
 
 var app = builder.Build();
 app.UseDefaultFiles();
@@ -95,6 +105,7 @@ app.MapGet("/api/attempts/{id}", (string id, HttpContext context, AttemptHistory
     var owner = TraceCapture.GetOrCreateOwner(context);
     return history.Find(owner, id) is { } attempt ? Results.Ok(attempt) : Results.NotFound();
 });
+app.MapPost("/api/attempts/{id}/resource", ResourceAccess.Call).RequireAuthorization();
 
 app.Run();
 

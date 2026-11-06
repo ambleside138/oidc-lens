@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.WebUtilities;
@@ -14,6 +16,7 @@ internal sealed class TraceCapture(string attemptId, AttemptHistory history)
     public bool RedeemingCode { get; private set; }
     public IReadOnlyDictionary<string, string>? TokenRequest { get; private set; }
     public TraceStep? TokenHttp { get; private set; }
+    private IdTokenInspection? idToken;
 
     public void Record(TraceStep step) => history.Record(attemptId, step);
 
@@ -83,7 +86,7 @@ internal sealed class TraceCapture(string attemptId, AttemptHistory history)
                 http.Response.Headers.SetCookie.Any(value =>
                     value?.StartsWith(SessionCookie + "=", StringComparison.Ordinal) == true))
             {
-                trace.Record(new TraceStep("session", "auth", "App", "App"));
+                trace.Record(new TraceStep("session", "auth", "App", "App", IdToken: trace.idToken));
             }
             return Task.CompletedTask;
         });
@@ -104,6 +107,39 @@ internal sealed class TraceCapture(string attemptId, AttemptHistory history)
         if (string.Equals(message.TokenType, "Bearer", StringComparison.OrdinalIgnoreCase))
             fields["token_type"] = "Bearer";
         RecordTokenHttp(step with { Response = fields });
+    }
+
+    public static Task CaptureDecodedIdToken(TokenValidatedContext context)
+    {
+        if (context.HttpContext.Features.Get<TraceCapture>() is not { } trace ||
+            context.SecurityToken is not JwtSecurityToken jwt)
+            return Task.CompletedTask;
+
+        var header = new Dictionary<string, string>();
+        if (jwt.Header.Alg is { } algorithm &&
+            context.Options.TokenValidationParameters.ValidAlgorithms.Contains(algorithm))
+            header["alg"] = algorithm;
+        if (jwt.Header.Typ == "JWT")
+            header["typ"] = "JWT";
+        if (!string.IsNullOrEmpty(jwt.Header.Kid))
+            header["kid"] = "present";
+
+        var payload = new Dictionary<string, string>();
+        if (Uri.TryCreate(jwt.Issuer, UriKind.Absolute, out var issuer) && PublicUrl(issuer) is { } issuerUrl)
+            payload["iss"] = issuerUrl;
+        if (context.Options.ClientId is { } clientId && jwt.Audiences.Contains(clientId))
+            payload["aud"] = clientId;
+        if (jwt.ValidTo != DateTime.MinValue)
+            payload["exp"] = jwt.ValidTo.ToString("O", CultureInfo.InvariantCulture);
+        foreach (var key in new[] { "sub", "nonce" })
+        {
+            if (jwt.Payload.ContainsKey(key))
+                payload[key] = "present";
+        }
+
+        // The callback only publishes this candidate after the standard handler issues the session cookie.
+        trace.idToken = new IdTokenInspection(header, payload, "session-established");
+        return Task.CompletedTask;
     }
 
     private static Dictionary<string, string> DescribeTokenRequest(OpenIdConnectMessage? message)

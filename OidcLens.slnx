@@ -1,4 +1,5 @@
 <Solution>
   <Project Path="src/OidcLens.Bff/OidcLens.Bff.csproj" />
+  <Project Path="src/OidcLens.ResourceApi/OidcLens.ResourceApi.csproj" />
   <Project Path="tests/OidcLens.IntegrationTests/OidcLens.IntegrationTests.csproj" />
 </Solution>

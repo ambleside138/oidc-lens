@@ -12,6 +12,11 @@ export interface TraceStep {
   status?: number | null
   request?: Record<string, string> | null
   response?: Record<string, string> | null
+  idToken?: {
+    header: Record<string, string>
+    payload: Record<string, string>
+    result: 'session-established'
+  } | null
 }
 
 export interface AttemptSummary {
@@ -69,5 +74,19 @@ export function makeTimeline(trace: TraceStep[]): FlowStep[] {
   }
   add(byId.get('session'), 'ID Token を検証しセッションを確立',
     '署名や nonce などの検証を終えたアプリが、ブラウザにセッション Cookie を発行しました。', 'internal')
+  const apiBrowser = byId.get('api-browser')
+  const apiResource = byId.get('api-resource')
+  add(apiBrowser && { ...apiBrowser, status: null }, 'ブラウザから保護 API の呼び出しを依頼',
+    'ブラウザはセッション Cookie をアプリに送ります。', 'front')
+  add(apiResource && { ...apiResource, status: null }, 'Access Token で保護 API を呼び出す',
+    'アプリはサーバーに保持していた Access Token を Bearer として送ります。', 'back')
+  if (apiResource?.status != null) {
+    add({ ...apiResource, id: 'resource-return', from: apiResource.to, to: apiResource.from, request: null },
+      'Resource API の応答', 'Resource API が Access Token を検証し、HTTP ステータスを返します。', 'back')
+  }
+  if (apiBrowser?.status != null) {
+    add({ ...apiBrowser, id: 'api-browser-return', from: apiBrowser.to, to: apiBrowser.from, request: null },
+      'ブラウザに呼び出し結果を返す', 'アプリが保護 API の呼び出し結果をブラウザに返します。', 'front')
+  }
   return steps
 }

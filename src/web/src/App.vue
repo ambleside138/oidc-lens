@@ -9,8 +9,10 @@ const live = ref<AttemptDetails>()
 const selectedIndex = ref(0)
 const notice = ref('')
 const loading = ref(false)
+const callingResource = ref(false)
 const steps = computed(() => makeTimeline(live.value?.steps ?? recordedSteps as TraceStep[]))
 const selected = computed(() => steps.value[selectedIndex.value])
+const canCallResource = computed(() => live.value?.steps.some(step => step.id === 'session'))
 const actors = computed<Actor[]>(() => steps.value.some(step => step.from === 'Resource API' || step.to === 'Resource API')
   ? ['Browser', 'App', 'IdP', 'Resource API']
   : ['Browser', 'App', 'IdP'])
@@ -56,6 +58,32 @@ function showRecording() {
   updateUrl(null)
 }
 
+async function callResource() {
+  if (!live.value) return
+  const attempt = live.value.id
+  const url = `/api/attempts/${encodeURIComponent(attempt)}`
+  callingResource.value = true
+  notice.value = ''
+  try {
+    const response = await fetch(`${url}/resource`, {
+      method: 'POST',
+      headers: { 'X-Oidc-Lens': 'workshop' },
+    })
+    live.value = await getJson<AttemptDetails>(url)
+    const lastStep = steps.value.findIndex(step => step.id === 'api-browser-return')
+    if (lastStep >= 0) selectedIndex.value = lastStep
+    if (!response.ok) {
+      notice.value = response.status === 409 || (response.status === 401 && lastStep < 0)
+        ? 'この試行から API を呼ぶには、もう一度ログインしてください。'
+        : `保護 API の呼び出しで HTTP ${response.status} が返りました。`
+    }
+  } catch {
+    notice.value = '保護 API の呼び出し結果を読み込めませんでした。'
+  } finally {
+    callingResource.value = false
+  }
+}
+
 onMounted(async () => {
   const id = new URLSearchParams(window.location.search).get('attempt')
   try {
@@ -92,13 +120,17 @@ onMounted(async () => {
         <small v-if="live">{{ timestamp.format(new Date(live.startedAt)) }}</small>
       </div>
       <div class="toolbar-actions">
-        <button class="plain-button" type="button" :disabled="loading || !live" @click="showRecording">
+        <button
+          v-if="canCallResource" class="plain-button call-api" type="button"
+          :disabled="loading || callingResource" @click="callResource"
+        >{{ callingResource ? '呼び出し中…' : '保護 API を呼ぶ' }}</button>
+        <button class="plain-button" type="button" :disabled="loading || callingResource || !live" @click="showRecording">
           事前記録を開く
         </button>
         <label v-if="attempts.length">
           <span class="sr-only">ライブ試行を選ぶ</span>
           <select
-            :value="live?.id ?? ''" :disabled="loading"
+            :value="live?.id ?? ''" :disabled="loading || callingResource"
             @change="openAttempt(($event.target as HTMLSelectElement).value)"
           >
             <option value="" disabled>ライブ履歴を選択</option>
@@ -193,6 +225,22 @@ onMounted(async () => {
               </dl>
             </section>
           </template>
+          <section v-if="selected.idToken" class="inspector" aria-label="ID Token Inspector">
+            <h3>ID Token Inspector</h3>
+            <p>デコードした項目を表示しています。</p>
+            <section v-for="(fields, label) in { Header: selected.idToken.header, Payload: selected.idToken.payload }" :key="label">
+              <h4>{{ label }}</h4>
+              <dl class="fields">
+                <div v-for="(value, key) in fields" :key="key">
+                  <dt><code>{{ key }}</code></dt><dd><code>{{ formatValue(value) }}</code></dd>
+                </div>
+              </dl>
+            </section>
+            <div class="validation-result">
+              <h4>認証処理の結果</h4>
+              <p>{{ selected.idToken.result === 'session-established' ? 'ID Token を検証し、セッションを確立しました。' : '判定未取得' }}</p>
+            </div>
+          </section>
         </div>
         <p v-else class="details-inner">この試行で観測したステップはまだありません。</p>
       </aside>

@@ -19,7 +19,8 @@
       "code_challenge": "present",
       "state": "present",
       "nonce": "present"
-    }
+    },
+    "idToken": null
   },
   {
     "id": "callback",
@@ -34,7 +35,8 @@
       "state": "present",
       "error": "absent"
     },
-    "response": null
+    "response": null,
+    "idToken": null
   },
   {
     "id": "code-exchange",
@@ -45,7 +47,8 @@
     "url": null,
     "status": null,
     "request": null,
-    "response": null
+    "response": null,
+    "idToken": null
   },
   {
     "id": "token-http",
@@ -68,7 +71,8 @@
       "id_token": "present",
       "refresh_token": "present",
       "token_type": "Bearer"
-    }
+    },
+    "idToken": null
   },
   {
     "id": "session",
@@ -79,6 +83,49 @@
     "url": null,
     "status": null,
     "request": null,
-    "response": null
+    "response": null,
+    "idToken": {
+      "header": {
+        "alg": "RS256",
+        "typ": "JWT",
+        "kid": "present"
+      },
+      "payload": {
+        "iss": "https://keycloak.dev.localhost:8443/realms/demo",
+        "aud": "oidc-lens-bff",
+        "exp": "2026-11-06T17:17:24.0000000Z",
+        "sub": "present",
+        "nonce": "present"
+      },
+      "result": "session-established"
+    }
+  },
+  {
+    "id": "api-browser",
+    "source": "http",
+    "from": "Browser",
+    "to": "App",
+    "method": "POST",
+    "url": "/api/attempts/{id}/resource",
+    "status": 200,
+    "request": {
+      "Cookie": "present"
+    },
+    "response": null,
+    "idToken": null
+  },
+  {
+    "id": "api-resource",
+    "source": "http",
+    "from": "App",
+    "to": "Resource API",
+    "method": "GET",
+    "url": "https://resource-api.dev.localhost:9443/protected",
+    "status": 200,
+    "request": {
+      "Authorization": "Bearer"
+    },
+    "response": null,
+    "idToken": null
   }
 ]
