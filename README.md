@@ -14,9 +14,15 @@ bash infra/create-local-cert.sh
 docker compose up --build --wait
 ```
 
-ブラウザで [OIDC Lens](https://localhost:7443) を開き、`workshop` / `oidc-lens-demo` でログインします。Keycloak のデモ Realm はローカル用の固定資格情報で動きます。
+ブラウザで [OIDC Lens](https://localhost:7443) を開き、`workshop` / `oidc-lens-demo` でログインします。ライブ試行に切り替わったら、「保護 API を呼ぶ」で Resource API の応答まで表示できます。Keycloak のデモ Realm はローカル用の固定資格情報で動きます。
 
-`dotnet test` で認証の統合テストを実行できます。Compose の起動後に `python3 tests/smoke_login.py` を実行すると、実際の Keycloak が S256 を要求し、コールバック後に BFF セッションが成立するところまで検証します。
+画面の「正常系の事前記録」は Keycloak に接続せずに再生できます。勉強会では「アプリへのコールバック」でブラウザが運ぶ項目を確認し、「ID Token を検証しセッションを確立」でデコード結果と認証処理を見比べます。最後に、どの通信で Access Token を使ったかを確認します。
+
+`dotnet test` で認証と保護 API の統合テストを、`cd src/web && npm ci && npm test` で画面のステップ構成のテストを実行できます。Compose の起動後に `python3 tests/smoke_login.py` を実行すると、実際の Keycloak で S256 が必須であること、BFF セッションの確立、保護 API の HTTP 200、履歴と通常ログのマスクを確認します。
+
+事前記録を取り直す場合は `python3 tests/smoke_login.py --record src/web/src/recordings/normal.json` を実行し、`docker compose up --build --wait` で画面に反映します。
+
+Keycloak 停止時の配信は、`docker compose stop keycloak` の後に `python3 tests/smoke_login.py --replay-only` で確認できます。ライブ実演を再開するには `docker compose up --wait` を実行します。
 
 ## 初回の学習目標
 
@@ -26,4 +32,4 @@ docker compose up --build --wait
 
 画面では、実測したHTTP、認証ライブラリの処理結果、教材の説明を区別します。勉強会ではローカル環境とデモ用ユーザーを使います。
 
-当日の進行、MVPの範囲、初回は着手しない機能は [PLAN.md](PLAN.md) にまとめています。現在は設計段階です。
+当日の進行、MVPの範囲、初回は着手しない機能は [PLAN.md](PLAN.md) にまとめています。
