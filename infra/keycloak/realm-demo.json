@@ -1,0 +1,34 @@
+{
+  "realm": "demo",
+  "enabled": true,
+  "sslRequired": "all",
+  "clients": [
+    {
+      "clientId": "oidc-lens-bff",
+      "protocol": "openid-connect",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "oidc-lens-local-only",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["https://localhost:7443/signin-oidc"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "workshop",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "workshop@example.test",
+      "firstName": "OIDC",
+      "lastName": "Workshop",
+      "credentials": [{ "type": "password", "value": "oidc-lens-demo", "temporary": false }]
+    }
+  ]
+}

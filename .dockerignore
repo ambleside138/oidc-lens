@@ -1,0 +1,9 @@
+.git/
+.https/
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/
+**/TestResults/
+.env
+.env.*

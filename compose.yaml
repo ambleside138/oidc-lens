@@ -1,0 +1,49 @@
+name: oidc-lens
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.1
+    command: start-dev --import-realm
+    environment:
+      KC_HOSTNAME: https://keycloak.dev.localhost:8443
+      KC_HTTP_ENABLED: "false"
+      KC_HTTPS_CERTIFICATE_FILE: /https/local.crt
+      KC_HTTPS_CERTIFICATE_KEY_FILE: /https/local.key
+      KC_HEALTH_ENABLED: "true"
+      KC_HTTP_MANAGEMENT_SCHEME: http
+    ports:
+      - "127.0.0.1:8443:8443"
+    networks:
+      default:
+        aliases:
+          - keycloak.dev.localhost
+    volumes:
+      - ./infra/keycloak/realm-demo.json:/opt/keycloak/data/import/demo-realm.json:ro
+      - ./.https/local.crt:/https/local.crt:ro
+      - ./.https/local.key:/https/local.key:ro
+    healthcheck:
+      test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/9000; printf 'HEAD /health/ready HTTP/1.0\r\n\r\n' >&3; read -r line <&3; [[ $$line == *' 200 '* ]]"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  bff:
+    build:
+      context: .
+      dockerfile: src/OidcLens.Bff/Dockerfile
+    environment:
+      ASPNETCORE_URLS: https://+:7443
+      ASPNETCORE_Kestrel__Certificates__Default__Path: /https/local.pfx
+      ASPNETCORE_Kestrel__Certificates__Default__Password: oidc-lens-local
+      SSL_CERT_FILE: /https/local.crt
+      Oidc__Authority: https://keycloak.dev.localhost:8443/realms/demo
+      Oidc__ClientId: oidc-lens-bff
+      Oidc__ClientSecret: oidc-lens-local-only
+    ports:
+      - "127.0.0.1:7443:7443"
+    volumes:
+      - ./.https/local.crt:/https/local.crt:ro
+      - ./.https/local.pfx:/https/local.pfx:ro
+    depends_on:
+      keycloak:
+        condition: service_healthy
