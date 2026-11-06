@@ -1,5 +1,6 @@
 """Exercise the running Compose stack over HTTPS without saving cookies or tokens."""
 
+import argparse
 import http.cookiejar
 import json
 import socket
@@ -109,9 +110,13 @@ def verify_login():
     assert callback.fields["code"].encode() not in data
     assert callback.fields["state"].encode() not in data
     print("Keycloak enforced S256, established a BFF session and produced a masked trace.")
+    return steps
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--record", type=Path, help="write only the masked trace steps as JSON")
+    args = parser.parse_args()
     getaddrinfo = socket.getaddrinfo
 
     def resolve_local(host, *args, **kwargs):
@@ -119,4 +124,7 @@ if __name__ == "__main__":
         return getaddrinfo("127.0.0.1" if host.endswith(".localhost") else host, *args, **kwargs)
 
     with patch("socket.getaddrinfo", resolve_local):
-        verify_login()
+        steps = verify_login()
+    if args.record:
+        args.record.parent.mkdir(parents=True, exist_ok=True)
+        args.record.write_text(json.dumps(steps, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

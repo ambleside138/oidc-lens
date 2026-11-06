@@ -1,0 +1,84 @@
+[
+  {
+    "id": "authorization-request",
+    "source": "http",
+    "from": "App",
+    "to": "Browser",
+    "method": "GET",
+    "url": "/auth/login",
+    "status": 302,
+    "request": null,
+    "response": {
+      "Location": "https://keycloak.dev.localhost:8443/realms/demo/protocol/openid-connect/auth",
+      "response_type": "code",
+      "response_mode": "form_post",
+      "scope": "openid",
+      "code_challenge_method": "S256",
+      "client_id": "present",
+      "redirect_uri": "present",
+      "code_challenge": "present",
+      "state": "present",
+      "nonce": "present"
+    }
+  },
+  {
+    "id": "callback",
+    "source": "http",
+    "from": "Browser",
+    "to": "App",
+    "method": "POST",
+    "url": "/signin-oidc",
+    "status": 302,
+    "request": {
+      "code": "present",
+      "state": "present",
+      "error": "absent"
+    },
+    "response": null
+  },
+  {
+    "id": "code-exchange",
+    "source": "auth",
+    "from": "App",
+    "to": "App",
+    "method": null,
+    "url": null,
+    "status": null,
+    "request": null,
+    "response": null
+  },
+  {
+    "id": "token-http",
+    "source": "http",
+    "from": "App",
+    "to": "IdP",
+    "method": "POST",
+    "url": "https://keycloak.dev.localhost:8443/realms/demo/protocol/openid-connect/token",
+    "status": 200,
+    "request": {
+      "grant_type": "authorization_code",
+      "code": "present",
+      "code_verifier": "present",
+      "client_id": "present",
+      "client_secret": "present",
+      "redirect_uri": "present"
+    },
+    "response": {
+      "access_token": "present",
+      "id_token": "present",
+      "refresh_token": "present",
+      "token_type": "Bearer"
+    }
+  },
+  {
+    "id": "session",
+    "source": "auth",
+    "from": "App",
+    "to": "App",
+    "method": null,
+    "url": null,
+    "status": null,
+    "request": null,
+    "response": null
+  }
+]
