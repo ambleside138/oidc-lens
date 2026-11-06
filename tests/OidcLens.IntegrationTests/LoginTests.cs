@@ -40,7 +40,7 @@ public partial class LoginTests
         using var callback = await CompleteLogin(browser, authorization["state"]!);
 
         Assert.Equal(HttpStatusCode.Redirect, callback.StatusCode);
-        Assert.Equal("/", callback.Headers.Location?.OriginalString);
+        Assert.NotEmpty(AttemptId(callback));
         var exchange = issuer.CodeExchange!;
         Assert.Equal("authorization_code", exchange["grant_type"]);
         Assert.Equal("code-from-issuer", exchange["code"]);
@@ -100,7 +100,9 @@ public partial class LoginTests
                 options.ClientSecret = "confidential-test-client-secret";
                 options.TokenValidationParameters.ValidAudience = DemoIssuer.ClientId;
                 options.ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(issuer.Configuration);
-                options.Backchannel = new HttpClient(issuer);
+                var observer = Assert.IsAssignableFrom<DelegatingHandler>(options.BackchannelHttpHandler);
+                observer.InnerHandler = issuer;
+                options.Backchannel = new HttpClient(observer);
             });
         }));
 

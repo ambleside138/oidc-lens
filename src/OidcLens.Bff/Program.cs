@@ -3,16 +3,20 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using OidcLens.Bff.Auth;
+using OidcLens.Bff.Tracing;
 
 var builder = WebApplication.CreateBuilder(args);
 var oidc = builder.Configuration.GetSection("Oidc");
 
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ITicketStore, MemoryTicketStore>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<AttemptHistory>();
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
-        options.Cookie.Name = "__Host-oidc-lens-session";
+        options.Cookie.Name = TraceCapture.SessionCookie;
         options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
         options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
         options.SlidingExpiration = false;
@@ -36,8 +40,10 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.Scope.Add("openid");
         options.TokenHandler = new SignedIdTokenHandler();
         options.TokenValidationParameters.ValidAlgorithms = [oidc["SigningAlgorithm"] ?? "RS256"];
+        options.Events.OnAuthorizationCodeReceived = TraceCapture.BeginCodeExchange;
         options.Events.OnTokenResponseReceived = context =>
         {
+            context.HttpContext.Features.Get<TraceCapture>()?.RecordTokenFields(context.TokenEndpointResponse);
             if (context.TokenEndpointResponse.AccessToken is { Length: > 0 } accessToken)
             {
                 context.Properties!.StoreTokens([new AuthenticationToken
@@ -57,17 +63,38 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     });
 builder.Services.AddOptions<CookieAuthenticationOptions>(CookieAuthenticationDefaults.AuthenticationScheme)
     .Configure<ITicketStore>((options, store) => options.SessionStore = store);
+builder.Services.AddOptions<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme)
+    .Configure<IHttpContextAccessor>((options, accessor) =>
+    {
+        options.BackchannelHttpHandler = new TokenExchangeObserver(accessor)
+        {
+            InnerHandler = new HttpClientHandler { AllowAutoRedirect = false }
+        };
+    });
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
+app.UseDefaultFiles();
 app.UseStaticFiles();
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api"))
+        context.Response.Headers.CacheControl = "no-store";
+    await next();
+});
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapGet("/", () => Results.Redirect("/index.html"));
-app.MapGet("/auth/login", () => Results.Challenge(
-    new AuthenticationProperties { RedirectUri = "/" }, [OpenIdConnectDefaults.AuthenticationScheme]));
+app.MapGet("/auth/login", (HttpContext context, AttemptHistory history) => Results.Challenge(
+    TraceCapture.StartLogin(context, history), [OpenIdConnectDefaults.AuthenticationScheme]));
 app.MapGet("/api/session", () => Results.Ok(new { authenticated = true })).RequireAuthorization();
+app.MapGet("/api/attempts", (HttpContext context, AttemptHistory history) =>
+    Results.Ok(history.List(TraceCapture.GetOrCreateOwner(context))));
+app.MapGet("/api/attempts/{id}", (string id, HttpContext context, AttemptHistory history) =>
+{
+    var owner = TraceCapture.GetOrCreateOwner(context);
+    return history.Find(owner, id) is { } attempt ? Results.Ok(attempt) : Results.NotFound();
+});
 
 app.Run();
 

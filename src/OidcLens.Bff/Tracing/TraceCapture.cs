@@ -1,0 +1,155 @@
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+
+namespace OidcLens.Bff.Tracing;
+
+internal sealed class TraceCapture(string attemptId, AttemptHistory history)
+{
+    public const string AttemptProperty = "oidc-lens-attempt";
+    public const string OwnerCookie = "__Host-oidc-lens-demo";
+    public const string SessionCookie = "__Host-oidc-lens-session";
+
+    public bool RedeemingCode { get; private set; }
+    public IReadOnlyDictionary<string, string>? TokenRequest { get; private set; }
+    public TraceStep? TokenHttp { get; private set; }
+
+    public void Record(TraceStep step) => history.Record(attemptId, step);
+
+    public void RecordTokenHttp(TraceStep step)
+    {
+        TokenHttp = step;
+        Record(step);
+    }
+
+    public static string GetOrCreateOwner(HttpContext context)
+    {
+        if (context.Request.Cookies.TryGetValue(OwnerCookie, out var existing)
+            && Guid.TryParseExact(existing, "N", out _))
+            return existing;
+
+        var owner = Guid.NewGuid().ToString("N");
+        context.Response.Cookies.Append(OwnerCookie, owner, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = true,
+            SameSite = SameSiteMode.Lax,
+            Path = "/"
+        });
+        return owner;
+    }
+
+    public static AuthenticationProperties StartLogin(HttpContext context, AttemptHistory history)
+    {
+        var id = history.Start(GetOrCreateOwner(context));
+        var trace = new TraceCapture(id, history);
+        context.Response.OnStarting(() =>
+        {
+            trace.RecordAuthorizationRedirect(context);
+            return Task.CompletedTask;
+        });
+        var properties = new AuthenticationProperties { RedirectUri = $"/?attempt={id}" };
+        properties.Items[AttemptProperty] = id;
+        return properties;
+    }
+
+    public static Task BeginCodeExchange(AuthorizationCodeReceivedContext context)
+    {
+        // This event runs after the handler restores protected state and checks its correlation cookie.
+        if (context.Properties is null ||
+            !context.Properties.Items.TryGetValue(AttemptProperty, out var id) || id is null)
+            return Task.CompletedTask;
+
+        var http = context.HttpContext;
+        var trace = new TraceCapture(id, http.RequestServices.GetRequiredService<AttemptHistory>())
+        {
+            RedeemingCode = true,
+            TokenRequest = DescribeTokenRequest(context.TokenEndpointRequest)
+        };
+        http.Features.Set(trace);
+        var callback = new TraceStep("callback", "http", "Browser", "App",
+            http.Request.Method, http.Request.Path,
+            Request: new Dictionary<string, string>
+            {
+                ["code"] = "present", ["state"] = "present", ["error"] = "absent"
+            });
+        trace.Record(callback);
+        trace.Record(new TraceStep("code-exchange", "auth", "App", "App"));
+        http.Response.OnStarting(() =>
+        {
+            trace.Record(callback with { Status = http.Response.StatusCode });
+            if (http.Response.StatusCode == StatusCodes.Status302Found &&
+                http.Response.Headers.SetCookie.Any(value =>
+                    value?.StartsWith(SessionCookie + "=", StringComparison.Ordinal) == true))
+            {
+                trace.Record(new TraceStep("session", "auth", "App", "App"));
+            }
+            return Task.CompletedTask;
+        });
+        return Task.CompletedTask;
+    }
+
+    public static string? PublicUrl(Uri? uri) => uri is { IsAbsoluteUri: true }
+        ? uri.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped)
+        : null;
+
+    public void RecordTokenFields(OpenIdConnectMessage message)
+    {
+        if (TokenHttp is not { } step)
+            return;
+
+        var fields = new Dictionary<string, string>();
+        AddPresence(fields, message, "access_token", "id_token", "refresh_token");
+        if (string.Equals(message.TokenType, "Bearer", StringComparison.OrdinalIgnoreCase))
+            fields["token_type"] = "Bearer";
+        RecordTokenHttp(step with { Response = fields });
+    }
+
+    private static Dictionary<string, string> DescribeTokenRequest(OpenIdConnectMessage? message)
+    {
+        var fields = new Dictionary<string, string>();
+        if (message is null)
+            return fields;
+
+        if (message.GrantType == "authorization_code")
+            fields["grant_type"] = "authorization_code";
+        AddPresence(fields, message, "code", "code_verifier", "client_id", "client_secret", "redirect_uri");
+        return fields;
+    }
+
+    private static void AddPresence(Dictionary<string, string> fields, OpenIdConnectMessage message, params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            if (!string.IsNullOrEmpty(message.GetParameter(key)))
+                fields[key] = "present";
+        }
+    }
+
+    private void RecordAuthorizationRedirect(HttpContext context)
+    {
+        if (context.Response.StatusCode != StatusCodes.Status302Found ||
+            !Uri.TryCreate(context.Response.Headers.Location.ToString(), UriKind.Absolute, out var location))
+            return;
+
+        var query = QueryHelpers.ParseQuery(location.Query);
+        var fields = new Dictionary<string, string> { ["Location"] = PublicUrl(location)! };
+        foreach (var (key, allowedValue) in new[]
+        {
+            ("response_type", "code"), ("response_mode", "form_post"),
+            ("scope", "openid"), ("code_challenge_method", "S256")
+        })
+        {
+            if (query.TryGetValue(key, out var value) && value.Count == 1 && value[0] == allowedValue)
+                fields[key] = allowedValue;
+        }
+        foreach (var key in new[] { "client_id", "redirect_uri", "code_challenge", "state", "nonce" })
+        {
+            if (query.ContainsKey(key))
+                fields[key] = "present";
+        }
+        Record(new TraceStep("authorization-request", "http", "App", "Browser",
+            context.Request.Method, "/auth/login", context.Response.StatusCode, Response: fields));
+    }
+}

@@ -95,10 +95,20 @@ def verify_login():
     assert "code" in callback.fields and "state" in callback.fields, (
         f"Expected an authorization code, found form field names {sorted(callback.fields)}."
     )
-    request(opener, callback.action, 302, callback.fields)
+    headers, _ = request(opener, callback.action, 302, callback.fields)
     _, session = request(opener, f"{APP}/api/session", 200)
     assert json.loads(session) == {"authenticated": True}
-    print("Keycloak enforced S256 and the HTTPS callback established a BFF session.")
+    attempt = urllib.parse.parse_qs(urllib.parse.urlsplit(headers["Location"]).query)["attempt"][0]
+    _, data = request(opener, f"{APP}/api/attempts/{attempt}", 200)
+    steps = json.loads(data)["steps"]
+    assert [step["id"] for step in steps] == [
+        "authorization-request", "callback", "code-exchange", "token-http", "session"
+    ]
+    assert steps[3]["status"] == 200
+    assert steps[3]["response"]["id_token"] == "present"
+    assert callback.fields["code"].encode() not in data
+    assert callback.fields["state"].encode() not in data
+    print("Keycloak enforced S256, established a BFF session and produced a masked trace.")
 
 
 if __name__ == "__main__":
