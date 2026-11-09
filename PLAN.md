@@ -2,16 +2,25 @@
 
 ## 初回の勉強会（30分）
 
-OIDCや認証・認可という言葉を聞いたことがある開発部のメンバーを対象とする。講師が画面を共有し、Keycloakでログインして保護APIを呼ぶ正常系を1回たどる。図の各矢印で「誰が、誰に、何を渡すか」を確認する。
+OIDCや認証・認可という言葉を聞いたことがある開発部のメンバーを対象とする。全体図でログイン成立までを一周し、「誰が、誰に、何を渡し、なぜその手順が必要か」を説明できることを目標にする。Keycloakのライブ実演と通信記録で、学んだ仕組みを確認する。
 
 | 時間 | 内容 |
 |---|---|
-| 0〜4分 | ブラウザ、アプリ、Keycloakの役割を紹介し、ログインを1回実演する |
-| 4〜17分 | リダイレクト、コールバック、サーバー間のコード交換を図とHTTPで追う |
-| 17〜25分 | ID Tokenの検証でログインが成立し、Access Tokenで保護APIを呼ぶところを見る |
-| 25〜30分 | 「ブラウザ経由で何が戻ったか」「2種類のトークンを誰が何に使ったか」を参加者に答えてもらい、質疑を行う |
+| 0〜5分 | 利用者・アプリ・認証サービスを紹介し、学習画面の読み方を確認する |
+| 5〜17分 | 依頼・利用者の認証・コードの受領・交換・結果の検証を、その必要性とともにたどる |
+| 17〜25分 | ライブ実演または事前記録で確かめ、ログイン後のCookieとAccess Tokenの用途を見る |
+| 25〜30分 | 図を見ずにログイン成立までを説明し、「コードを受け取った時点で何が足りないか」を確かめる |
 
 ライブ実演に備えて、マスク済みの正常系の記録を1本用意する。Keycloakに接続できない場合も、同じ図とHTTP詳細を使って説明を続けられるようにする。
+
+## 学習画面の構成（2026-11改訂）
+
+- 入口はスライド形式の学習画面。図、短い説明、前後の操作を同じ位置に置き、保護されたデータを見るところからAPIでの取得まで9場面でたどる。実演は `/my-data` を開き、本人確認後に同じURLへ戻る。専門用語は、その動作を説明してから名前を紹介する。
+- ログイン成立後に、Cookieの一般的な仕組み、このアプリでのログイン状態の確認、API利用を順に説明する。APIの場面では、IDトークンを受け取った場面を振り返り、アクセストークンも受け取っていたことを示す。
+- 通信は初期OFF。2周目はONで読み進められ、途中でも切り替えられる。幅に余裕があるときは右側に表示する。
+- 用語はその場で説明を開く。「通信記録を調べる」と「用語辞典・参考解説」は補助資料とし、学習と同列のタブにはしない。OAuthの経緯を本編に挟まない。
+- 学習の進行からライブ試行の成功を推定しない。未観測の場面は未観測として扱う。
+- デザインはデジタル庁デザインシステムを基にする。具体的な文字・色・余白・操作・アクセシビリティの選択は [DESIGN.md](DESIGN.md) を参照。
 
 ## 初回向けMVPの範囲
 
@@ -22,7 +31,9 @@ OIDCや認証・認可という言葉を聞いたことがある開発部のメ�
 
 ## 構成
 
-Vue 3 + TypeScriptをASP.NET Core BFFと同一オリジンで配信する。BFFは.NET 8の標準OIDCハンドラーとCookie認証を使用し、KeycloakにはConfidential Clientとして接続する。セッションCookieにはトークンを格納せず、Resource APIの呼び出しに使うAccess Tokenはサーバー側に保持する。Resource APIは教材用の保護された1エンドポイントを持ち、署名・Issuer・Audience・有効期限を検証する。
+Vue 3 + TypeScriptをASP.NET Core BFFと同一オリジンで配信する。BFFとResource APIは.NET 10を使う。BFFは標準OIDCハンドラーとCookie認証を使用し、KeycloakにはConfidential Clientとして接続する。セッションCookieにはトークンを格納せず、Resource APIの呼び出しに使うAccess Tokenはサーバー側に保持する。Resource APIは教材用の保護された1エンドポイントを持ち、署名・Issuer・Audience・有効期限を検証する。
+
+初回デモではブラウザ経由の認可リクエストでパラメーターを観察するため、BFFで `PushedAuthorizationBehavior.Disable` を指定し、KeycloakのデモクライアントではPushed Authorization Requests（PAR）を必須にしない。
 
 Docker ComposeでBFF、Keycloak、Resource APIを起動する。KeycloakのIssuer URLを固定し、ブラウザとBFFコンテナの両方から解決できるようにする。初回の疎通でローカルHTTPS、証明書の信頼、リダイレクトURIの完全一致、Keycloak側のS256必須設定を確認する。
 
@@ -41,9 +52,10 @@ tests/OidcLens.IntegrationTests/
 
 | ステップ | 記録する事実と観測地点 |
 |---|---|
-| Authorization Request | BFFのHTTPミドルウェアでリダイレクト応答とマスク済み `Location` を観測する。ブラウザからKeycloakへのアクセスは教材表示にする |
+| Resource Request | 未ログインでの `GET /my-data` と、Cookieの有無を記録する。本人確認後に同じURLを開き直すところまで一続きで扱う |
+| Authorization Request | アプリが返すリダイレクト応答とマスク済み `Location` を観測する。ブラウザからKeycloakへのアクセスは教材表示にする |
 | User Authentication | Keycloakのログイン画面と内部処理は教材表示にする。既存のSSOセッションによってフォームが省略される場合を説明する |
-| Authorization Code Response | BFFのコールバックでMethodと `code`、`state`、`error` の有無を観測する。Keycloakがブラウザへ返す応答は別の出来事として扱う |
+| Authorization Code Response | BFFのコールバックでMethodと `code`、`state`、`error` の有無を観測する。戻り先 `/my-data` とセッションCookieの発行も、値を隠して記録する。Keycloakがブラウザへ返す応答は別の出来事として扱う |
 | Token Request / Response | OIDCバックチャネルの `DelegatingHandler` でトークンエンドポイントのPOSTと応答を観測する。認証イベントからはコード交換に進んだ地点を記録する |
 | ID Token Validation | Appレーン内の認証処理として表示する。標準ハンドラーの後続検証とセッション確立まで確認して、試行の成功を確定する |
 | API Access | Browser → BFFのCookie認証とBFF → Resource APIのAccess Tokenによる呼び出しをそれぞれ観測する |
@@ -83,10 +95,10 @@ tests/OidcLens.IntegrationTests/
 
 ## 設計レビューで確認したい点
 
-- .NET 8の標準ハンドラーで、ID Tokenの署名を必須にする接続点、鍵更新、後続検証とセッション確立の確認方法、ログイン失敗時の扱いを評価する。
+- .NET 10の標準ハンドラーで、ID Tokenの署名を必須にする接続点、鍵更新、後続検証とセッション確立の確認方法、ログイン失敗時の扱いを評価する。
 
 ## 参照仕様と実装資料
 
 - [OAuth 2.0 Authorization Code Grant](https://www.rfc-editor.org/rfc/rfc6749.html#section-4.1) · [Bearer Token Usage](https://www.rfc-editor.org/rfc/rfc6750.html#section-2.1) · [OAuth 2.0 Security BCP](https://www.rfc-editor.org/rfc/rfc9700.html)
 - [OpenID Connect Core](https://openid.net/specs/openid-connect-core-1_0.html#CodeFlowAuth) · [OpenID Connect Discovery](https://openid.net/specs/openid-connect-discovery-1_0.html) · [PKCE](https://www.rfc-editor.org/rfc/rfc7636.html#section-4) · [JWT](https://www.rfc-editor.org/rfc/rfc7519.html)
-- [ブラウザベースアプリのBFF構成](https://www.rfc-editor.org/rfc/rfc10017.html#section-6.1) · [ASP.NET Core 8のOIDCハンドラー](https://raw.githubusercontent.com/dotnet/aspnetcore/v8.0.0/src/Security/Authentication/OpenIdConnect/src/OpenIdConnectHandler.cs) · [KeycloakのHostname設定](https://www.keycloak.org/server/hostname)
+- [ブラウザベースアプリのBFF構成](https://www.rfc-editor.org/rfc/rfc10017.html#section-6.1) · [ASP.NET Core 10のOIDCハンドラー](https://raw.githubusercontent.com/dotnet/aspnetcore/v10.0.0/src/Security/Authentication/OpenIdConnect/src/OpenIdConnectHandler.cs) · [ASP.NET Core 10のPAR設定](https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.authentication.openidconnect.pushedauthorizationbehavior?view=aspnetcore-10.0) · [KeycloakのHostname設定](https://www.keycloak.org/server/hostname)

@@ -73,6 +73,8 @@ public partial class LoginTests
     private sealed class ResourceStub : HttpMessageHandler
     {
         public int Calls { get; private set; }
+        public HttpStatusCode Status { get; init; } = HttpStatusCode.OK;
+        public string Message { get; init; } = "Protected resource reached.";
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -80,9 +82,9 @@ public partial class LoginTests
             Assert.Equal("https://resource.example/protected", request.RequestUri!.AbsoluteUri);
             Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
             Assert.Equal("access-token-from-issuer", request.Headers.Authorization?.Parameter);
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return Task.FromResult(new HttpResponseMessage(Status)
             {
-                Content = JsonContent.Create(new { message = "Protected resource reached." })
+                Content = JsonContent.Create(new { message = Message })
             });
         }
     }

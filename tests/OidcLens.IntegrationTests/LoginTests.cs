@@ -113,9 +113,10 @@ public partial class LoginTests
             AllowAutoRedirect = false
         });
 
-    private static async Task<Dictionary<string, StringValues>> StartLogin(HttpClient browser)
+    private static async Task<Dictionary<string, StringValues>> StartLogin(HttpClient browser,
+        string path = "/auth/login")
     {
-        using var start = await browser.GetAsync("/auth/login");
+        using var start = await browser.GetAsync(path);
         Assert.Equal(HttpStatusCode.Redirect, start.StatusCode);
         Assert.Equal(DemoIssuer.Issuer + "/authorize", start.Headers.Location!.GetLeftPart(UriPartial.Path));
         return QueryHelpers.ParseQuery(start.Headers.Location.Query);

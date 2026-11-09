@@ -40,3 +40,19 @@ test('the offline recording follows login through the protected API', () => {
     ['api-browser-return', 'front', 'App', 'Browser', 200],
   ])
 })
+
+test('the recording starts and finishes at the same data URL using the application Cookie', () => {
+  const recording = JSON.parse(readFileSync(new URL('../src/recordings/normal.json', import.meta.url), 'utf8'))
+  const first = recording.find(step => step.id === 'resource-request')
+  const retry = recording.find(step => step.id === 'api-browser')
+  assert.equal(first.method, 'GET')
+  assert.equal(first.url, '/my-data')
+  assert.equal(first.request.Cookie, 'absent')
+  assert.equal(retry.method, 'GET')
+  assert.equal(retry.url, first.url)
+  assert.equal(retry.request.Cookie, 'present')
+  assert.equal(retry.status, 200)
+  const timeline = makeTimeline(recording)
+  assert.equal(timeline[0].id, 'resource-request')
+  assert.ok(timeline.findIndex(step => step.id === 'session') < timeline.findIndex(step => step.id === 'api-browser'))
+})

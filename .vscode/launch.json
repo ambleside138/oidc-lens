@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "OIDC Lens を起動",
+      "type": "msedge",
+      "request": "launch",
+      "url": "https://localhost:7443",
+      "webRoot": "${workspaceFolder}/src/web",
+      "preLaunchTask": "OIDC Lens: 起動",
+      "postDebugTask": "OIDC Lens: 停止"
+    }
+  ]
+}

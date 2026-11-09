@@ -1,11 +1,25 @@
 [
   {
+    "id": "resource-request",
+    "source": "http",
+    "from": "Browser",
+    "to": "App",
+    "method": "GET",
+    "url": "/my-data",
+    "status": null,
+    "request": {
+      "Cookie": "absent"
+    },
+    "response": null,
+    "idToken": null
+  },
+  {
     "id": "authorization-request",
     "source": "http",
     "from": "App",
     "to": "Browser",
     "method": "GET",
-    "url": "/auth/login",
+    "url": "/my-data",
     "status": 302,
     "request": null,
     "response": {
@@ -35,7 +49,10 @@
       "state": "present",
       "error": "absent"
     },
-    "response": null,
+    "response": {
+      "Location": "/my-data",
+      "Set-Cookie": "present"
+    },
     "idToken": null
   },
   {
@@ -93,7 +110,7 @@
       "payload": {
         "iss": "https://keycloak.dev.localhost:8443/realms/demo",
         "aud": "oidc-lens-bff",
-        "exp": "2026-11-06T17:17:24.0000000Z",
+        "exp": "2026-11-09T15:48:52.0000000Z",
         "sub": "present",
         "nonce": "present"
       },
@@ -105,8 +122,8 @@
     "source": "http",
     "from": "Browser",
     "to": "App",
-    "method": "POST",
-    "url": "/api/attempts/{id}/resource",
+    "method": "GET",
+    "url": "/my-data",
     "status": 200,
     "request": {
       "Cookie": "present"

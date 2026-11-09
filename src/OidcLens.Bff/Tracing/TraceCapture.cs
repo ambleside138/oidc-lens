@@ -43,16 +43,27 @@ internal sealed class TraceCapture(string attemptId, AttemptHistory history)
         return owner;
     }
 
-    public static AuthenticationProperties StartLogin(HttpContext context, AttemptHistory history)
+    public static AuthenticationProperties StartLogin(HttpContext context, AttemptHistory history,
+        bool returnToResource = false)
     {
         var id = history.Start(GetOrCreateOwner(context));
         var trace = new TraceCapture(id, history);
+        if (returnToResource)
+            trace.Record(new TraceStep("resource-request", "http", "Browser", "App",
+                context.Request.Method, "/my-data", Request: new Dictionary<string, string>
+                {
+                    ["Cookie"] = context.Request.Cookies.ContainsKey(SessionCookie) ? "present" : "absent"
+                }));
         context.Response.OnStarting(() =>
         {
             trace.RecordAuthorizationRedirect(context);
             return Task.CompletedTask;
         });
-        var properties = new AuthenticationProperties { RedirectUri = $"/?attempt={id}" };
+        // Only fixed local destinations are accepted; the browser cannot choose a return URL.
+        var properties = new AuthenticationProperties
+        {
+            RedirectUri = returnToResource ? "/my-data" : $"/?attempt={id}"
+        };
         properties.Items[AttemptProperty] = id;
         return properties;
     }
@@ -81,10 +92,19 @@ internal sealed class TraceCapture(string attemptId, AttemptHistory history)
         trace.Record(new TraceStep("code-exchange", "auth", "App", "App"));
         http.Response.OnStarting(() =>
         {
-            trace.Record(callback with { Status = http.Response.StatusCode });
-            if (http.Response.StatusCode == StatusCodes.Status302Found &&
-                http.Response.Headers.SetCookie.Any(value =>
-                    value?.StartsWith(SessionCookie + "=", StringComparison.Ordinal) == true))
+            var issuedSessionCookie = http.Response.Headers.SetCookie.Any(value =>
+                value?.StartsWith(SessionCookie + "=", StringComparison.Ordinal) == true);
+            var response = new Dictionary<string, string>();
+            // Publish only known local paths and cookie presence, never query strings or cookie values.
+            var returnPath = http.Response.Headers.Location.ToString().Split('?', 2)[0];
+            if (returnPath is "/my-data" or "/") response["Location"] = returnPath;
+            if (issuedSessionCookie) response["Set-Cookie"] = "present";
+            trace.Record(callback with
+            {
+                Status = http.Response.StatusCode,
+                Response = response.Count > 0 ? response : null
+            });
+            if (http.Response.StatusCode == StatusCodes.Status302Found && issuedSessionCookie)
             {
                 trace.Record(new TraceStep("session", "auth", "App", "App", IdToken: trace.idToken));
             }
@@ -186,6 +206,6 @@ internal sealed class TraceCapture(string attemptId, AttemptHistory history)
                 fields[key] = "present";
         }
         Record(new TraceStep("authorization-request", "http", "App", "Browser",
-            context.Request.Method, "/auth/login", context.Response.StatusCode, Response: fields));
+            context.Request.Method, context.Request.Path.Value, context.Response.StatusCode, Response: fields));
     }
 }

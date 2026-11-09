@@ -1,6 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { channels, makeTimeline, sources } from './flow'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import LearningGuide from './LearningGuide.vue'
+import LoginJourney from './LoginJourney.vue'
+import TraceDetails from './TraceDetails.vue'
+import { journey, stageForTrace, stageIndexFromHash } from './journey'
+import { parseLearningHash } from './learning'
+import { actorLabels, makeTimeline, sources } from './flow'
 import type { Actor, AttemptDetails, AttemptSummary, TraceStep } from './flow'
 import recordedSteps from './recordings/normal.json'
 
@@ -9,9 +14,18 @@ const live = ref<AttemptDetails>()
 const selectedIndex = ref(0)
 const notice = ref('')
 const loading = ref(false)
-const callingResource = ref(false)
+const hash = ref(window.location.hash)
+const learningRoute = computed(() => parseLearningHash(hash.value))
+const view = computed(() => learningRoute.value ? 'reference' : /^#flow(?:\/|$)/.test(hash.value) ? 'flow' : 'journey')
+const journeyIndex = ref(stageIndexFromHash(hash.value))
+const communication = ref(false)
+const backHref = ref(`#journey/${journey[journeyIndex.value]!.id}`)
+const backLabel = ref('学習中の場面に戻る')
 const steps = computed(() => makeTimeline(live.value?.steps ?? recordedSteps as TraceStep[]))
 const selected = computed(() => steps.value[selectedIndex.value])
+const selectedStage = computed(() => selected.value ? stageForTrace(selected.value.id) : undefined)
+const selectedContextHref = computed(() => selectedStage.value ? `#journey/${selectedStage.value.id}` : '#journey/api')
+const requestedStepMissing = computed(() => view.value === 'flow' && hash.value.split('/')[1] && !steps.value.some(step => step.id === hash.value.split('/')[1]))
 const canCallResource = computed(() => live.value?.steps.some(step => step.id === 'session'))
 const actors = computed<Actor[]>(() => steps.value.some(step => step.from === 'Resource API' || step.to === 'Resource API')
   ? ['Browser', 'App', 'IdP', 'Resource API']
@@ -19,9 +33,48 @@ const actors = computed<Actor[]>(() => steps.value.some(step => step.from === 'R
 const chartWidth = computed(() => 170 * (actors.value.length - 1) + 180)
 const lane = (actor: Actor) => 90 + 170 * actors.value.indexOf(actor)
 const row = (index: number) => 92 + 60 * index
-const fieldLabels: Record<string, string> = { present: 'あり · 値をマスク', absent: 'なし' }
-const formatValue = (value: string) => fieldLabels[value] ?? value
 const timestamp = new Intl.DateTimeFormat('ja-JP', { dateStyle: 'short', timeStyle: 'medium' })
+
+async function syncNavigation() {
+  const nextHash = window.location.hash
+  const previousView = view.value
+  if (nextHash.startsWith('#learn') && view.value !== 'reference') {
+    backHref.value = view.value === 'flow' ? `#flow/${selected.value?.id ?? ''}` : `#journey/${journey[journeyIndex.value]!.id}`
+    backLabel.value = view.value === 'flow' ? '選択中の通信に戻る' : '学習中の場面に戻る'
+  }
+  hash.value = nextHash
+  if (nextHash.startsWith('#journey') || nextHash === '#after-login') journeyIndex.value = stageIndexFromHash(nextHash)
+  if (view.value === 'flow') {
+    const index = steps.value.findIndex(step => step.id === nextHash.split('/')[1])
+    if (index >= 0) selectedIndex.value = index
+  }
+  await nextTick()
+  const targetId = view.value === 'reference' ? null
+    : view.value === 'flow' ? (nextHash.includes('/') ? 'trace-heading' : 'flow-heading')
+    : 'stage-heading'
+  if (targetId) {
+    const target = document.getElementById(targetId)
+    target?.focus({ preventScroll: true })
+    // Moving through slides should not move their title out from under the reader.
+    if (previousView !== view.value || view.value === 'flow') target?.scrollIntoView({ block: 'start' })
+    else if (view.value === 'journey' && target && target.getBoundingClientRect().top < 0) target.scrollIntoView({ block: 'start' })
+  }
+}
+
+function observeStep(stepId: string) {
+  const index = steps.value.findIndex(step => step.id === stepId)
+  if (index < 0) return
+  selectedIndex.value = index
+  const destination = `#flow/${stepId}`
+  if (window.location.hash === destination) void syncNavigation()
+  else window.location.hash = destination
+}
+
+function focusContent() {
+  const target = document.getElementById('main-content')
+  target?.focus({ preventScroll: true })
+  target?.scrollIntoView({ block: 'start' })
+}
 
 async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { cache: 'no-store' })
@@ -43,6 +96,13 @@ async function openAttempt(id: string) {
     selectedIndex.value = 0
     notice.value = ''
     updateUrl(id)
+    if (window.location.hash.startsWith('#journey/')) {
+      communication.value = true
+      await syncNavigation()
+    } else {
+      observeStep(steps.value.some(step => step.id === 'api-browser-return') ? 'api-browser-return'
+        : steps.value.some(step => step.id === 'session') ? 'session' : steps.value[0]?.id ?? '')
+    }
   } catch {
     showRecording()
     notice.value = 'この試行の履歴を開けませんでした。事前記録を表示しています。'
@@ -56,35 +116,11 @@ function showRecording() {
   selectedIndex.value = 0
   notice.value = ''
   updateUrl(null)
-}
-
-async function callResource() {
-  if (!live.value) return
-  const attempt = live.value.id
-  const url = `/api/attempts/${encodeURIComponent(attempt)}`
-  callingResource.value = true
-  notice.value = ''
-  try {
-    const response = await fetch(`${url}/resource`, {
-      method: 'POST',
-      headers: { 'X-Oidc-Lens': 'workshop' },
-    })
-    live.value = await getJson<AttemptDetails>(url)
-    const lastStep = steps.value.findIndex(step => step.id === 'api-browser-return')
-    if (lastStep >= 0) selectedIndex.value = lastStep
-    if (!response.ok) {
-      notice.value = response.status === 409 || (response.status === 401 && lastStep < 0)
-        ? 'この試行から API を呼ぶには、もう一度ログインしてください。'
-        : `保護 API の呼び出しで HTTP ${response.status} が返りました。`
-    }
-  } catch {
-    notice.value = '保護 API の呼び出し結果を読み込めませんでした。'
-  } finally {
-    callingResource.value = false
-  }
+  if (view.value === 'flow') observeStep('authorization-request')
 }
 
 onMounted(async () => {
+  window.addEventListener('hashchange', syncNavigation)
   const id = new URLSearchParams(window.location.search).get('attempt')
   try {
     attempts.value = await getJson<AttemptSummary[]>('/api/attempts')
@@ -92,25 +128,36 @@ onMounted(async () => {
     notice.value = 'ライブ履歴を読み込めませんでした。事前記録を再生できます。'
   }
   if (id) await openAttempt(id)
+  else if (window.location.hash) await syncNavigation()
 })
+
+onBeforeUnmount(() => window.removeEventListener('hashchange', syncNavigation))
 </script>
 
 <template>
+  <a class="skip-link" href="#main-content" @click.prevent="focusContent">本文へ移動</a>
   <header class="masthead">
     <div class="masthead-inner">
-      <div class="brand">
-        <span class="brand-mark" aria-hidden="true">◈</span>
-        <div><strong>OIDC Lens</strong><small>認証フローを観察する</small></div>
-      </div>
-      <a class="primary-button" href="/auth/login">Keycloak でログイン <span aria-hidden="true">↗</span></a>
+      <a class="brand" href="#journey"><strong>OIDC Lens</strong><span>ログインの仕組みを理解する</span></a>
+      <a class="header-login" href="/my-data">データを見る →</a>
     </div>
   </header>
 
-  <main>
+  <main id="main-content" tabindex="-1">
+    <nav v-if="view !== 'journey'" class="support-navigation" aria-label="学習と補助資料">
+      <a :href="`#journey/${journey[journeyIndex]!.id}`">← 学習中の場面に戻る</a>
+      <a v-if="view !== 'flow'" href="#flow">通信記録を調べる</a>
+      <a v-if="view !== 'reference'" href="#learn/glossary">用語辞典・参考解説</a>
+    </nav>
+    <LoginJourney v-if="view === 'journey'" v-model:communication="communication" :stage-index="journeyIndex" :steps="steps" :recording="!live" @reselect="syncNavigation" />
+    <LearningGuide v-if="learningRoute" :route="learningRoute" :available-steps="steps.map(step => step.id)" :back-href="backHref" :back-label="backLabel" @observe="observeStep" />
+
+    <div v-show="view === 'flow'">
     <section class="intro">
-      <p class="eyebrow">OPENID CONNECT WORKSHOP</p>
-      <h1>ログインの裏側をたどる</h1>
-      <p>ブラウザ、アプリ、Keycloak の間で何が渡るか、矢印を選んで確かめましょう。</p>
+      <p class="eyebrow">仕組みを、実際のやり取りで確かめる</p>
+      <h1 id="flow-heading" tabindex="-1">通信記録を調べる</h1>
+      <p>ログインからAPIの利用まで、アプリで採取した通信記録をまとめて確認できます。</p>
+      <a class="learning-invitation" :href="selectedContextHref">{{ selectedStage ? 'この通信が、ログイン全体で果たす役割を見る' : 'ログイン後のAPI利用との関係を見る' }} →</a>
     </section>
 
     <div class="toolbar">
@@ -120,17 +167,14 @@ onMounted(async () => {
         <small v-if="live">{{ timestamp.format(new Date(live.startedAt)) }}</small>
       </div>
       <div class="toolbar-actions">
-        <button
-          v-if="canCallResource" class="plain-button call-api" type="button"
-          :disabled="loading || callingResource" @click="callResource"
-        >{{ callingResource ? '呼び出し中…' : '保護 API を呼ぶ' }}</button>
-        <button class="plain-button" type="button" :disabled="loading || callingResource || !live" @click="showRecording">
+        <a v-if="canCallResource" class="plain-button" href="/my-data">同じデータをもう一度見る</a>
+        <button class="plain-button" type="button" :disabled="loading || !live" @click="showRecording">
           事前記録を開く
         </button>
         <label v-if="attempts.length">
           <span class="sr-only">ライブ試行を選ぶ</span>
           <select
-            :value="live?.id ?? ''" :disabled="loading || callingResource"
+            :value="live?.id ?? ''" :disabled="loading"
             @change="openAttempt(($event.target as HTMLSelectElement).value)"
           >
             <option value="" disabled>ライブ履歴を選択</option>
@@ -142,21 +186,22 @@ onMounted(async () => {
       </div>
     </div>
     <p v-if="notice" class="notice" role="status">{{ notice }}</p>
+    <p v-if="requestedStepMissing" class="notice" role="status">指定されたステップはこの試行では未観測です。下には取得済みの記録を表示しています。</p>
 
     <div class="workspace">
       <nav class="panel steps" aria-label="フローのステップ">
         <div class="panel-heading"><h2>ステップ</h2><span>{{ steps.length }}</span></div>
         <ol>
           <li v-for="(step, index) in steps" :key="step.id">
-            <button type="button" :aria-current="index === selectedIndex ? 'step' : undefined" @click="selectedIndex = index">
+            <button type="button" :aria-current="index === selectedIndex ? 'step' : undefined" @click="observeStep(step.id)">
               <span class="step-number">{{ String(index + 1).padStart(2, '0') }}</span>
               <span>{{ step.title }}<small>{{ sources[step.source] }}</small></span>
             </button>
           </li>
         </ol>
         <div class="step-controls">
-          <button class="plain-button" type="button" :disabled="selectedIndex === 0" @click="selectedIndex--">← 前へ</button>
-          <button class="plain-button" type="button" :disabled="selectedIndex >= steps.length - 1" @click="selectedIndex++">次へ →</button>
+          <button class="plain-button" type="button" :disabled="selectedIndex === 0" @click="observeStep(steps[selectedIndex - 1]!.id)">← 前へ</button>
+          <button class="plain-button" type="button" :disabled="selectedIndex >= steps.length - 1" @click="observeStep(steps[selectedIndex + 1]!.id)">次へ →</button>
         </div>
       </nav>
 
@@ -178,14 +223,14 @@ onMounted(async () => {
               </marker>
             </defs>
             <g v-for="actor in actors" :key="actor" class="actor">
-              <rect :x="lane(actor) - 55" y="9" width="110" height="31" rx="7"/>
-              <text :x="lane(actor)" y="29" text-anchor="middle">{{ actor }}</text>
+              <rect :x="lane(actor) - 70" y="9" width="140" height="31" rx="7"/>
+              <text :x="lane(actor)" y="29" text-anchor="middle">{{ actorLabels[actor] }}</text>
               <line :x1="lane(actor)" :x2="lane(actor)" y1="41" :y2="row(steps.length) - 28"/>
             </g>
             <g
               v-for="(step, index) in steps" :key="step.id" class="diagram-step" :class="[step.channel, { selected: index === selectedIndex }]"
               role="button" tabindex="0" :aria-label="step.title" :aria-pressed="index === selectedIndex"
-              @click="selectedIndex = index" @keydown.enter.prevent="selectedIndex = index" @keydown.space.prevent="selectedIndex = index"
+              @click="observeStep(step.id)" @keydown.enter.prevent="observeStep(step.id)" @keydown.space.prevent="observeStep(step.id)"
             >
               <rect class="step-highlight" x="8" :y="row(index) - 34" :width="chartWidth - 16" height="55" rx="8"/>
               <text x="19" :y="row(index) + 4" class="row-number">{{ String(index + 1).padStart(2, '0') }}</text>
@@ -195,7 +240,7 @@ onMounted(async () => {
                 :marker-end="`url(#${step.channel}-arrow)`"
               />
               <text :x="(lane(step.from) + lane(step.to)) / 2" :y="row(index) - 11" text-anchor="middle">
-                {{ step.method ?? (step.source === 'lesson' ? '教材' : '認証処理') }}{{ step.status ? ` · ${step.status}` : '' }}
+                {{ step.diagramLabel }}{{ step.status ? ` · ${step.status}` : '' }}
               </text>
             </g>
           </svg>
@@ -203,47 +248,14 @@ onMounted(async () => {
       </section>
 
       <aside class="panel details" aria-label="選択中のステップの詳細">
-        <div class="panel-heading"><h2>通信の詳細</h2></div>
-        <div v-if="selected" class="details-inner" aria-live="polite">
-          <div class="tags"><span>{{ sources[selected.source] }}</span><span>{{ channels[selected.channel] }}</span></div>
-          <h3>{{ selected.title }}</h3>
-          <p>{{ selected.description }}</p>
-          <dl class="fields">
-            <div><dt>観測地点</dt><dd>{{ selected.source === 'lesson' ? '教材の説明' : 'BFF' }}</dd></div>
-            <div><dt>経路</dt><dd>{{ selected.from }} → {{ selected.to }}</dd></div>
-            <div v-if="selected.method"><dt>Method</dt><dd><code>{{ selected.method }}</code></dd></div>
-            <div v-if="selected.url"><dt>URL</dt><dd><code>{{ selected.url }}</code></dd></div>
-            <div v-if="selected.status"><dt>Status</dt><dd><code>{{ selected.status }}</code></dd></div>
-          </dl>
-          <template v-for="(fields, label) in { Request: selected.request, Response: selected.response }" :key="label">
-            <section v-if="fields && Object.keys(fields).length" class="field-group">
-              <h4>{{ label }}</h4>
-              <dl class="fields">
-                <div v-for="(value, key) in fields" :key="key">
-                  <dt><code>{{ key }}</code></dt><dd><code>{{ formatValue(value) }}</code></dd>
-                </div>
-              </dl>
-            </section>
-          </template>
-          <section v-if="selected.idToken" class="inspector" aria-label="ID Token Inspector">
-            <h3>ID Token Inspector</h3>
-            <p>デコードした項目を表示しています。</p>
-            <section v-for="(fields, label) in { Header: selected.idToken.header, Payload: selected.idToken.payload }" :key="label">
-              <h4>{{ label }}</h4>
-              <dl class="fields">
-                <div v-for="(value, key) in fields" :key="key">
-                  <dt><code>{{ key }}</code></dt><dd><code>{{ formatValue(value) }}</code></dd>
-                </div>
-              </dl>
-            </section>
-            <div class="validation-result">
-              <h4>認証処理の結果</h4>
-              <p>{{ selected.idToken.result === 'session-established' ? 'ID Token を検証し、セッションを確立しました。' : '判定未取得' }}</p>
-            </div>
-          </section>
+        <div class="panel-heading"><h2 id="trace-heading" tabindex="-1">選択中の通信</h2></div>
+        <div v-if="selected" class="details-inner">
+          <a :href="selectedContextHref">{{ selectedStage ? `場面${journey.indexOf(selectedStage) + 1}の理由に戻る` : 'ログイン後の説明に戻る' }} →</a>
+          <TraceDetails :step="selected" :recording="!live" />
         </div>
         <p v-else class="details-inner">この試行で観測したステップはまだありません。</p>
       </aside>
+    </div>
     </div>
   </main>
 </template>

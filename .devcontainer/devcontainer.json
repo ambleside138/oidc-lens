@@ -1,0 +1,14 @@
+{
+  "name": "OIDC Lens",
+  "image": "mcr.microsoft.com/devcontainers/dotnet:10.0-noble",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "24"
+    }
+  },
+  "remoteUser": "vscode",
+  "postCreateCommand": [
+    "sudo", "git", "config", "--system", "--fixed-value", "--replace-all",
+    "safe.directory", "${containerWorkspaceFolder}", "${containerWorkspaceFolder}"
+  ]
+}

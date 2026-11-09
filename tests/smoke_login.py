@@ -82,7 +82,7 @@ def verify_login():
     opener = browser()
     verify_frontend(opener)
     request(opener, f"{APP}/api/session", 401)
-    headers, _ = request(opener, f"{APP}/auth/login", 302)
+    headers, _ = request(opener, f"{APP}/my-data", 302)
     authorization = urllib.parse.urlsplit(headers["Location"])
     assert authorization.geturl().startswith(ISSUER + "/protocol/openid-connect/auth?")
     parameters = urllib.parse.parse_qs(authorization.query)
@@ -109,27 +109,41 @@ def verify_login():
         f"Expected an authorization code, found form field names {sorted(callback.fields)}."
     )
     headers, _ = request(opener, callback.action, 302, callback.fields)
+    assert headers["Location"] == "/my-data", "Authentication must return to the original resource."
     _, session = request(opener, f"{APP}/api/session", 200)
     assert json.loads(session) == {"authenticated": True}
-    attempt = urllib.parse.parse_qs(urllib.parse.urlsplit(headers["Location"]).query)["attempt"][0]
-    _, resource = request(opener, f"{APP}/api/attempts/{attempt}/resource", 200, {},
-                          {"X-Oidc-Lens": "workshop"})
-    assert json.loads(resource) == {"reached": True}
+    _, resource = request(opener, f"{APP}/my-data", 200)
+    assert json.loads(resource) == {"reached": True, "message": "Protected resource reached."}
+    _, attempts = request(opener, f"{APP}/api/attempts", 200)
+    attempt = json.loads(attempts)[0]["id"]
     _, data = request(opener, f"{APP}/api/attempts/{attempt}", 200)
     steps = json.loads(data)["steps"]
     assert [step["id"] for step in steps] == [
-        "authorization-request", "callback", "code-exchange", "token-http", "session",
+        "resource-request", "authorization-request", "callback", "code-exchange", "token-http", "session",
         "api-browser", "api-resource"
     ]
-    assert steps[3]["status"] == 200
-    assert steps[3]["response"]["id_token"] == "present"
-    assert steps[4]["idToken"]["result"] == "session-established"
-    assert steps[6]["status"] == 200
+    by_id = {step["id"]: step for step in steps}
+    assert by_id["resource-request"]["url"] == by_id["api-browser"]["url"] == "/my-data"
+    assert by_id["resource-request"]["request"]["Cookie"] == "absent"
+    assert by_id["api-browser"]["request"]["Cookie"] == "present"
+    assert by_id["api-browser"]["method"] == "GET" and by_id["api-browser"]["status"] == 200
+    assert by_id["token-http"]["status"] == 200
+    assert by_id["token-http"]["response"]["id_token"] == "present"
+    assert by_id["session"]["idToken"]["result"] == "session-established"
+    assert by_id["callback"]["response"]["Location"] == "/my-data"
+    assert by_id["callback"]["response"]["Set-Cookie"] == "present"
+    assert by_id["api-resource"]["status"] == 200
+    # A second visit uses the application session instead of starting OIDC again.
+    _, again = request(opener, f"{APP}/my-data", 200)
+    assert json.loads(again) == json.loads(resource)
+    _, later_attempts = request(opener, f"{APP}/api/attempts", 200)
+    assert len(json.loads(later_attempts)) == len(json.loads(attempts))
     logs = subprocess.run(["docker", "compose", "logs", "--no-color"], capture_output=True, check=True).stdout
     for secret in (callback.fields["code"], callback.fields["state"], parameters["nonce"][0],
                    parameters["code_challenge"][0], "oidc-lens-demo", "oidc-lens-local-only"):
         assert secret.encode() not in data and secret.encode() not in logs, "Secret in history or Compose logs."
-    print("Keycloak enforced S256, the BFF established a session, and the protected API returned HTTP 200.")
+    print("GET /my-data triggered authentication, returned to /my-data with a session Cookie, and fetched API data.")
+    print("Keycloak enforced S256; repeated GET /my-data reused the session and returned HTTP 200.")
     print("The masked trace and Compose logs did not contain the checked secret values.")
     return steps
 

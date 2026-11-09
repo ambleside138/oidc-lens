@@ -88,7 +88,7 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 app.Use(async (context, next) =>
 {
-    if (context.Request.Path.StartsWithSegments("/api"))
+    if (context.Request.Path.StartsWithSegments("/api") || context.Request.Path == "/my-data")
         context.Response.Headers.CacheControl = "no-store";
     await next();
 });
@@ -97,6 +97,7 @@ app.UseAuthorization();
 
 app.MapGet("/auth/login", (HttpContext context, AttemptHistory history) => Results.Challenge(
     TraceCapture.StartLogin(context, history), [OpenIdConnectDefaults.AuthenticationScheme]));
+app.MapGet("/my-data", ResourceAccess.Open);
 app.MapGet("/api/session", () => Results.Ok(new { authenticated = true })).RequireAuthorization();
 app.MapGet("/api/attempts", (HttpContext context, AttemptHistory history) =>
     Results.Ok(history.List(TraceCapture.GetOrCreateOwner(context))));
