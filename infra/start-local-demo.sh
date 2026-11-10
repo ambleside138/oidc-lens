@@ -2,6 +2,14 @@
 set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
+compose=(docker compose)
+if [[ "${1:-}" == "--dev" ]]; then
+  compose+=(-f compose.yaml -f compose.dev.yaml)
+elif [[ $# -gt 0 ]]; then
+  echo "Usage: $0 [--dev]" >&2
+  exit 1
+fi
+
 for tool in docker curl; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "Required command not found: $tool. See README.md for local setup." >&2
@@ -23,7 +31,7 @@ if [[ ! -s .https/local.crt || ! -s .https/local.key || ! -s .https/local.pfx ]]
   bash infra/create-local-cert.sh
 fi
 
-docker compose up --build --wait --wait-timeout 180
+"${compose[@]}" up --build --wait --wait-timeout 180
 
 # Compose waits for Keycloak; also wait for the application to accept HTTPS.
 echo "Waiting for OIDC Lens at https://localhost:7443 ..."
@@ -38,5 +46,5 @@ while (( SECONDS < deadline )); do
 done
 
 echo "OIDC Lens did not become ready. Recent application logs:" >&2
-docker compose logs --tail=50 bff resource-api
+"${compose[@]}" logs --tail=50
 exit 1

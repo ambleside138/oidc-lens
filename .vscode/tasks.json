@@ -2,6 +2,32 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "OIDC Lens: 開発起動",
+      "type": "process",
+      "command": "bash",
+      "args": ["./infra/start-local-demo.sh", "--dev"],
+      "windows": {
+        "command": "wsl.exe",
+        "args": ["-d", "Ubuntu", "--", "bash", "./infra/start-local-demo.sh", "--dev"]
+      },
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "OIDC Lens: 開発停止",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "-f", "compose.yaml", "-f", "compose.dev.yaml", "stop"],
+      "windows": {
+        "command": "wsl.exe",
+        "args": ["-d", "Ubuntu", "--", "docker", "compose", "-f", "compose.yaml", "-f", "compose.dev.yaml", "stop"]
+      },
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
       "label": "OIDC Lens: 起動",
       "type": "process",
       "command": "bash",

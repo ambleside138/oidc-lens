@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using OidcLens.Bff.Auth;
 using OidcLens.Bff.Tracing;
+using OidcLens.Bff.Lab;
 
 var builder = WebApplication.CreateBuilder(args);
 var oidc = builder.Configuration.GetSection("Oidc");
@@ -12,6 +13,11 @@ builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ITicketStore, MemoryTicketStore>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<AttemptHistory>();
+builder.Services.AddSingleton<LabStore>();
+builder.Services.AddSingleton<LabEndpoints>();
+builder.Services.AddHttpClient(LabEndpoints.ClientName, client => client.Timeout = TimeSpan.FromSeconds(15))
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false })
+    .RemoveAllLoggers();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
@@ -107,6 +113,7 @@ app.MapGet("/api/attempts/{id}", (string id, HttpContext context, AttemptHistory
     return history.Find(owner, id) is { } attempt ? Results.Ok(attempt) : Results.NotFound();
 });
 app.MapPost("/api/attempts/{id}/resource", ResourceAccess.Call).RequireAuthorization();
+LabEndpoints.Map(app);
 
 app.Run();
 

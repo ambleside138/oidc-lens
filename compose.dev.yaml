@@ -1,0 +1,26 @@
+services:
+  bff:
+    ports: !reset []
+
+  web-dev:
+    image: node:24-bookworm-slim
+    working_dir: /web
+    command: sh -c "npm ci --no-audit --no-fund && npm run dev -- --port 5173"
+    environment:
+      OIDC_LENS_HTTPS_DIR: /https
+      OIDC_LENS_BFF_URL: https://bff:7443
+      OIDC_LENS_POLLING: "true"
+      NODE_EXTRA_CA_CERTS: /https/local.crt
+    ports:
+      - "127.0.0.1:7443:5173"
+    volumes:
+      - ./src/web:/web:ro
+      - web-dev-modules:/web/node_modules
+      - ./.https/local.crt:/https/local.crt:ro
+      - ./.https/local.key:/https/local.key:ro
+    depends_on:
+      bff:
+        condition: service_started
+
+volumes:
+  web-dev-modules:

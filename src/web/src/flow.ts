@@ -36,7 +36,7 @@ export interface FlowStep extends TraceStep {
 }
 
 export const actorLabels: Record<Actor, string> = {
-  Browser: '利用者のブラウザ', App: 'アプリ', IdP: '認証サービス', 'Resource API': '別サービスのAPI',
+  Browser: '利用者のブラウザ', App: 'アプリ', IdP: '認証サービス', 'Resource API': 'リソースAPI',
 }
 export const sources: Record<Source, string> = { http: '通信記録', auth: '処理記録', lesson: '説明用' }
 export const channels: Record<Channel, string> = {
@@ -87,10 +87,10 @@ export function makeTimeline(trace: TraceStep[]): FlowStep[] {
   add(apiBrowser && { ...apiBrowser, status: null }, 'ログイン後のブラウザからの依頼',
     'ブラウザが、ログイン状態を確認するためのCookieをアプリに送った記録です。', 'front', 'Cookie')
   add(apiResource && { ...apiResource, status: null }, 'アクセストークンでデータを求める',
-    'アプリが、利用する権限を示すアクセストークンを相手のAPIへ送ります。', 'back', 'Access Token')
+    'アプリが、利用する権限を示すアクセストークンをリソースAPIへ送ります。', 'back', 'Access Token')
   if (apiResource?.status != null) {
     add({ ...apiResource, id: 'resource-return', from: apiResource.to, to: apiResource.from, request: null },
-      '別サービスからの応答', '相手のAPIが、アクセストークンを確かめた結果を返します。', 'back', '応答')
+      'リソースAPIからの応答', 'リソースAPIが、アクセストークンを確かめた結果を返します。', 'back', '応答')
   }
   if (apiBrowser?.status != null) {
     add({ ...apiBrowser, id: 'api-browser-return', from: apiBrowser.to, to: apiBrowser.from, request: null },

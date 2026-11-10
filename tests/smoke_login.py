@@ -73,8 +73,12 @@ def request(opener, url, expected, fields=None, headers=None):
 def verify_frontend(opener):
     _, page = request(opener, f"{APP}/", 200)
     bundle = re.search(rb'src="(/assets/[^"]+\.js)"', page)
-    assert bundle, "Expected the Vue bundle in the BFF home page."
-    _, javascript = request(opener, APP + bundle[1].decode(), 200)
+    if bundle:
+        _, javascript = request(opener, APP + bundle[1].decode(), 200)
+    else:
+        assert b'/@vite/client' in page and b'/src/main.ts' in page, "Expected the Vue bundle or Vite development page."
+        request(opener, f"{APP}/src/main.ts", 200)
+        _, javascript = request(opener, f"{APP}/src/recordings/normal.json?import", 200)
     return javascript
 
 

@@ -4,6 +4,31 @@
   "sslRequired": "all",
   "clients": [
     {
+      "clientId": "oidc-lens-lab",
+      "protocol": "openid-connect",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "consentRequired": true,
+      "redirectUris": ["https://localhost:7443/auth/lab/callback"],
+      "attributes": { "pkce.code.challenge.method": "S256" },
+      "protocolMappers": [
+        {
+          "name": "resource-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "oidc-lens-resource-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
       "clientId": "oidc-lens-bff",
       "protocol": "openid-connect",
       "enabled": true,

@@ -38,6 +38,9 @@ services:
       Oidc__Authority: https://keycloak.dev.localhost:8443/realms/demo
       Oidc__ClientId: oidc-lens-bff
       Oidc__ClientSecret: oidc-lens-local-only
+      Lab__Enabled: "true"
+      Lab__ClientId: oidc-lens-lab
+      Lab__RedirectUri: https://localhost:7443/auth/lab/callback
       ResourceApi__BaseAddress: https://resource-api.dev.localhost:9443
     ports:
       - "127.0.0.1:7443:7443"

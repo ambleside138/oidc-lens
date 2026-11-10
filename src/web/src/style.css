@@ -369,6 +369,13 @@ main { padding-block: 24px 64px; }
 .slide-title h1 { font-size: clamp(1.375rem, 2vw, 1.875rem); margin: 0; }
 #stage-heading { scroll-margin-top: 20px; }
 .slide-diagram { margin: 20px 24px 0; height: 280px; }
+.concept-panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 16px; min-height: 280px; margin: 20px 24px 0; padding-bottom: 24px; align-content: start; }
+.concept-panel { min-width: 0; padding: 20px; border: 1px solid var(--border); border-top: 4px solid var(--accent); border-radius: 4px; background: var(--tint); }
+.concept-panel h2 { margin: 0 0 16px; font-size: 1rem; }
+.concept-panel dl { margin: 0; }
+.concept-panel dl > div + div { margin-top: 16px; }
+.concept-panel dt { font-size: .875rem; font-weight: 700; }
+.concept-panel dd { margin: 4px 0 0; font-size: .875rem; overflow-wrap: anywhere; }
 .slide-actors { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; text-align: center; }
 .slide-actor { display: flex; flex-direction: column; align-items: center; min-width: 0; padding-inline: 3px; }
 .slide-actor > svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 1.7; margin-bottom: 9px; }
@@ -435,6 +442,7 @@ main { padding-block: 24px 64px; }
   .slide-title h1 { font-size: 1.375rem; }
   .slide-scene-name { display: none; }
   .slide-diagram { margin: 16px 8px 0; height: 290px; }
+  .concept-panels { grid-template-columns: 1fr; min-height: 0; margin: 16px 16px 0; }
   .slide-actor strong { font-size: .75rem; }
   .slide-actor small { font-size: .6875rem; }
   .slide-actor > svg { width: 26px; height: 26px; }

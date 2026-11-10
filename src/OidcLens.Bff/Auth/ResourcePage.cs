@@ -23,7 +23,7 @@ internal static class ResourcePage
             </style></head>
             <body><header><a href="/">OIDC Lens</a></header><main>
             <p>/my-data</p><h1>データを取得できました</h1>
-            <p>アプリがログイン状態を確認し、別のサービスから受け取ったデータです。</p>
+            <p>アプリがログイン状態を確認し、リソースAPIから取得したデータです。</p>
             <pre>{{WebUtility.HtmlEncode(data)}}</pre>
             <nav><a href="{{WebUtility.HtmlEncode(href)}}">{{linkLabel}}</a><a href="/my-data">同じデータをもう一度見る →</a></nav>
             </main></body></html>
